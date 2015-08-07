@@ -21,20 +21,6 @@
 
 (time (hist (repeat bent-coin 100) "bent coin"))
 
-; analysis of bent-coin:
-; marginalize away the initial fair-coin flip, like so
-; Pr(x=t|y=h)*Pr(y=h) = 0.7 * 0.5 = 0.35
-; Pr(x=t|y=t)*Pr(y=t) = 0.1 * 0.5 = 0.05
-;                                   -----
-;                                   0.40
-
-; Pr(x=h|y=h)*Pr(y=h) = 0.3 * 0.5 = 0.15
-; Pr(x=h|y=t)*Pr(y=t) = 0.9 * 0.5 = 0.45
-;                                   -----
-;                                   0.60
-; 
-; thus bent-coin returns heads approximately 40% of the time and tails approximately 60% of the time.
-
 (define (sample-gaussian mean std-dev)
   (flvector-ref (cond [(and (inexact? mean) (inexact? std-dev))
          (flnormal-sample mean std-dev 1)]
@@ -61,30 +47,7 @@
        [label (string-append "geometric distribution, p=" (number->string prob))]
        [data (repeat (thunk* (geometric prob)) num-trials)])
   (hist data label))
-
-; the probability that (geometric p) halts after 1 iteration is p
-; the probability that (geometric p) halts after 2 iterations is P(T,H) = P(T)*P(H)
-;                                                                       = (1-p)p = p - p^2
-; the probability that (geometric p) ... 3 iterations is P(T,T,H) = P(T)^2 * P(H)
-;                                                                 = (1-p)^2 * p
-; p(1-p)^2 = p(1 - 2p + p^2) =p - 2p^2 + p^3 
-; let n be a natural number >= 1.
-; assume the probability that (geometric p) halts after n iterations is given by
-; P(T)^(n-1) * P(H). Multiplying by P(T) gives the probability that (geometric p)
-; halts after n+1 iterations: P(T)^n * P(H). 
-
-; This shows inductively that the probability that (geometric p) halts after n iterations 
-; is given by the formula p(1-p)^(n-1).
-
-; this is called the geometric distribution because p(1-p)^(n-1) expands into
-; a geometric series in p. Applying the binomial theorem and some 
-; simple algebra yields the expansion:
-; p(1-p)^(n-1) = p(sum [0 <= i <= (n-1)] [(n-1) choose i) * ((-1)^i * p^i)])
-;              =(sum [0 <= i <= (n-1)] [(n-1) choose i) * ((-1)^i * p^(i+1))])
-; as a geometric series, the ratio between successive probabilities equals (1-p).
-; that is to say, the halting probability of (geometric p) after n+1 is smaller than
-; the probability of (geometric p) halting after n steps by a factor of (1-p).
-
+  
 (define (uniform-draw a-list)
   (list-ref a-list ((compose random length) a-list)))
 
@@ -195,10 +158,6 @@
 ;(define tug-times (repeat (thunk* (time-ms bayes-tug null)) 1000))
 ;(hist tug-times "")
 ;(display (list "the mean execution time of bayes-tug is " (exact->inexact (mean tug-times)) "ms"))
-
-;conditional probability
-; P(A=a | B=b) = P(A=a, B=b) / P(B=b)
-; P(A=a, B=b) is the joint probability
 
 (define (pow base exp)
   (define (iter counter times)
