@@ -10,4 +10,4 @@ Since writing this, I learned of two packages for probabilistic programming with
 * [ntoronto's Dr. Bayes](https://github.com/ntoronto/drbayes)
 * [rmculpepper's Gamble](https://github.com/rmculpepper/gamble)
 
-So if you're actually trying to do something, you should probably use one of these instead :P
+So if you're actually trying to do something, you should probably use one of those instead :P
