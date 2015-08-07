@@ -1,0 +1,235 @@
+#lang racket
+(require rackunit plot (planet schematics/random:1:0/random) math/distributions racket/flonum)
+
+(define (flip [success-probability 0.5])
+  (<= (random) success-probability))
+
+(define (repeat sampler trials)
+  (build-list trials sampler))
+
+(define (hist data label)
+  (define (count-occurrences value list) (length (filter ((curry eq?) value) list)))
+  (define (probability-of x) (vector x (/ (count-occurrences x data) (length data))))
+  (define (probabilities unique-elements) (map probability-of unique-elements))
+  (define prepare (compose discrete-histogram probabilities remove-duplicates))
+  (plot (prepare data) #:x-label label))
+
+(define (make-coin weight) (thunk* (if (flip weight) 'h 't)))
+(define (bend coin) (thunk* (if (eq? (coin) 'h) ((make-coin 0.7)) ((make-coin 0.1)))))
+(define fair-coin (make-coin 0.5))
+(define bent-coin (bend fair-coin))
+
+(time (hist (repeat bent-coin 100) "bent coin"))
+
+; analysis of bent-coin:
+; marginalize away the initial fair-coin flip, like so
+; Pr(x=t|y=h)*Pr(y=h) = 0.7 * 0.5 = 0.35
+; Pr(x=t|y=t)*Pr(y=t) = 0.1 * 0.5 = 0.05
+;                                   -----
+;                                   0.40
+
+; Pr(x=h|y=h)*Pr(y=h) = 0.3 * 0.5 = 0.15
+; Pr(x=h|y=t)*Pr(y=t) = 0.9 * 0.5 = 0.45
+;                                   -----
+;                                   0.60
+; 
+; thus bent-coin returns heads approximately 40% of the time and tails approximately 60% of the time.
+
+(define (sample-gaussian mean std-dev)
+  (flvector-ref (cond [(and (inexact? mean) (inexact? std-dev))
+         (flnormal-sample mean std-dev 1)]
+        [(and (inexact? mean) (exact? std-dev))
+         (flnormal-sample mean (exact->inexact std-dev 1))]
+        [(and (exact? mean) (inexact? std-dev))
+         (flnormal-sample (exact->inexact mean) std-dev 1)]
+        [else (flnormal-sample (exact->inexact mean) (exact->inexact std-dev) 1)]) 0))
+         
+;  (flnormal-sample mean std-dev))
+ ; ((compose first sample) (normal-dist mean std-dev) 1))
+(define two-gaussians (thunk* (* (sample-gaussian 0 1) (sample-gaussian 0 1))))
+(two-gaussians)
+
+; an example of stochastic recursion
+(define (geometric p)
+  (if (flip p)
+      0
+      (+ 1 (geometric p))))
+
+; plotting a geometric distribution
+(let* ([prob 0.6]
+       [num-trials 1000]
+       [label (string-append "geometric distribution, p=" (number->string prob))]
+       [data (repeat (thunk* (geometric prob)) num-trials)])
+  (hist data label))
+
+; the probability that (geometric p) halts after 1 iteration is p
+; the probability that (geometric p) halts after 2 iterations is P(T,H) = P(T)*P(H)
+;                                                                       = (1-p)p = p - p^2
+; the probability that (geometric p) ... 3 iterations is P(T,T,H) = P(T)^2 * P(H)
+;                                                                 = (1-p)^2 * p
+; p(1-p)^2 = p(1 - 2p + p^2) =p - 2p^2 + p^3 
+; let n be a natural number >= 1.
+; assume the probability that (geometric p) halts after n iterations is given by
+; P(T)^(n-1) * P(H). Multiplying by P(T) gives the probability that (geometric p)
+; halts after n+1 iterations: P(T)^n * P(H). 
+
+; This shows inductively that the probability that (geometric p) halts after n iterations 
+; is given by the formula p(1-p)^(n-1).
+
+; this is called the geometric distribution because p(1-p)^(n-1) expands into
+; a geometric series in p. Applying the binomial theorem and some 
+; simple algebra yields the expansion:
+; p(1-p)^(n-1) = p(sum [0 <= i <= (n-1)] [(n-1) choose i) * ((-1)^i * p^i)])
+;              =(sum [0 <= i <= (n-1)] [(n-1) choose i) * ((-1)^i * p^(i+1))])
+; as a geometric series, the ratio between successive probabilities equals (1-p).
+; that is to say, the halting probability of (geometric p) after n+1 is smaller than
+; the probability of (geometric p) halting after n steps by a factor of (1-p).
+
+(define (uniform-draw a-list)
+  (list-ref a-list ((compose random length) a-list)))
+
+(define (eye-color person) (uniform-draw '(blue green brown)))
+(list
+ (eye-color 'bob)
+ (eye-color 'alice)
+ (eye-color 'bob))
+
+; memoize adapted from sicp page 273; this version is variadic.
+(define (memoize f)
+  (let ([table (make-hash)])
+    (define (update-table args result) (hash-set! table args result))
+    (define (compute-update-return [args null]) (let ([result (apply f args)])
+                                                  (update-table args result)
+                                                  result))
+    (define (lookup-or-compute key) (hash-ref! table key (thunk (compute-update-return key))))
+    (lambda ([arg null] . args) (if (empty? arg) (lookup-or-compute arg)
+                                    (lookup-or-compute (cons arg args))))))
+
+(define mem-flip (memoize flip))
+(check-equal? (eq? (mem-flip) (mem-flip)) true)
+
+(define meye-color
+  (memoize (lambda (person) (uniform-draw '(blue green brown)))))
+
+(list (meye-color 'bob)
+      (meye-color 'alice)
+      (meye-color 'bob))
+
+; bayesian tug-of-war
+;(define strength (memoize (lambda (person) (sample-gaussian 0 1))))
+;(define lazy (lambda (person) (flip 0.25)))
+(define (sum a-list) (foldr + 0 a-list))
+;(define (pulling person) (if (lazy person) (/ (strength person) 2)
+ ;                            (strength person)))
+;(define (total-pulling team) (sum (map pulling team)))
+;(define (winner team1 team2) (if (< (total-pulling team1) (total-pulling team2))
+;                                 team2
+;                                 team1))
+;(list "Tournament results:"
+;      (winner '(alice bob) '(sue tom))
+;      (winner '(alice bob) '(sue tom))
+;      (winner '(alice sue) '(bob tom))
+;      (winner '(alice sue) '(bob tom))
+;      (winner '(alice tom) '(bob sue))
+;      (winner '(alice tom) '(bob sue)))
+
+(define-namespace-anchor anc)
+(define (rejection-query defines query-expr conditioner)
+  (define (true? a-boolean) (eq? #t a-boolean))
+  (define ns (namespace-anchor->namespace anc))
+  (begin (map (lambda (def) (eval def ns)) defines)
+         (if (true? (eval conditioner ns)) (eval query-expr ns)
+             (rejection-query defines query-expr conditioner))))
+
+(define (take-sample)
+  (rejection-query
+    '((define A (if (flip) 1 0))
+      (define B (if (flip) 1 0))
+      (define C (if (flip) 1 0))
+      (define D (+ A B C)))
+   'A
+   '(>= D 2)))
+;(hist (repeat (thunk* (take-sample)) 100) "Value of A, given that D >= 2")
+
+;bayes rule
+(define observed-data true)
+(define (prior) (flip))
+(define (observe h) (if h (flip 0.9) (flip 0.1)))
+(rejection-query
+ '((define hypothesis (prior))
+   (define data (observe hypothesis)))
+ 'hypothesis
+ '(equal? data observed-data))
+
+; bayesian tug-of-war
+;  how likely is it that bob is strong, given that he's been in a series of winning teams?
+(define (bayes-tug)
+(rejection-query 
+ '((define strength (memoize (lambda (person) (sample-gaussian 0 1))))
+
+    (define lazy (lambda (person) (flip (/ 1 3))))
+
+    (define (total-pulling team)
+      (sum
+         (map
+          (lambda (person) (if (lazy person) (/ (strength person) 2) (strength person)))
+          team)))
+
+    (define (winner team1 team2)
+      (if (> (total-pulling team1) (total-pulling team2)) 'team1 'team2)))
+
+   '(strength 'bob)
+
+    '(and (eq? 'team1 (winner '(bob mary) '(tom sue)))
+         (eq? 'team1 (winner '(bob sue) '(tom jim))))))
+
+;(define bayes-tug-samples (repeat (thunk* (bayes-tug)) 500))
+;(plot (density bayes-tug-samples))
+(define (mean a-list)
+  (/ (sum a-list) (length a-list)))
+;(display (list "expected strength: " (mean bayes-tug-samples)))
+
+(define (time-ms proc args)
+  (define-values (result cpu-time real-time gc-time) (time-apply proc args))
+  real-time)
+;(define tug-times (repeat (thunk* (time-ms bayes-tug null)) 1000))
+;(hist tug-times "")
+;(display (list "the mean execution time of bayes-tug is " (exact->inexact (mean tug-times)) "ms"))
+
+;conditional probability
+; P(A=a | B=b) = P(A=a, B=b) / P(B=b)
+; P(A=a, B=b) is the joint probability
+
+(define (pow base exp)
+  (define (iter counter times)
+    (if (= 1 times) counter
+        (iter (* counter base) (sub1 times))))
+  (cond [(zero? exp) 1]
+        [(< exp 0) (/ 1 (iter base exp))]
+        [else (iter base exp)]))
+
+; direct sampling monte carlo calculation of pi
+(define (direct-pi n)
+  (define (iter hits time-left)
+    (if (zero? time-left) hits
+        (if (< ((compose sum (curry map sqr)) (sample (uniform-dist -1 1) 2)) 1) 
+            (iter (add1 hits) (sub1 time-left))
+            (iter hits (sub1 time-left)))))
+  (* 4 (/ (iter 0 n) n)))
+
+
+; markov chain monte carlo calculation of pi
+(define (mcmc-pi n)
+  (define (iter x y hits time-left delta)
+    (let ([dx (sample (uniform-dist (* -1 delta) delta))]
+          [dy (sample (uniform-dist (* -1 delta) delta))])
+      (cond [(zero? time-left) hits]
+            [else (define-values (next-x next-y)
+                    (if (and (< (abs (+ x dx)) 1)
+                             (< (abs (+ y dy)) 1))
+                        (values (+ x dx) (+ y dy))
+                        (values x y)))
+                  (iter next-x next-y (if (< (+ (sqr next-x) (sqr next-y)) 1) (add1 hits) hits)
+                        (sub1 time-left) delta)])))
+  (* 4 (/ (iter 1 1 0 n 1) n)))
+
